@@ -1,0 +1,192 @@
+name: Core Synchronization
+
+on:
+  push: # remove once finished
+  workflow_dispatch:
+  schedule:
+    - cron:  '44 4 * * *'
+
+jobs:
+  create_pull_request:
+    name: Check for changes and create Pull Request
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: View context attributes
+      uses: actions/github-script@v5
+      with:
+        script: |
+          console.log(context)
+
+    - name: Align rules with the TYPO3 Core
+      id: align-rules
+      uses: actions/github-script@v2
+      with:
+        github-token: ${{secrets.GITHUB_TOKEN}}
+        script: |
+          const debug = core.getInput('debug')
+
+          async function getCoreFileContent(path) {
+            const response = await github.repos.getContent({
+            //request('GET /repos/{owner}/{repo}/contents/{path}', {
+              owner: 'gilbertsoft',
+              repo: 'typo3',
+              path: path
+            })
+
+            if (response.status != 200) {
+              console.log(response)
+              throw new Error('Download faild.')
+            }
+
+            console.log(path + ' downloaded from TYPO3 Core.')
+
+            return Buffer.from(response.data.content, 'base64').toString('utf8')
+          }
+
+          function getRules(content, regex) {
+            const coreRulesMatches = regex.exec(content)
+            console.log('PHP Coding Standards Fixer rules extracted:\n\n' + coreRulesMatches[1])
+
+            return coreRulesMatches[1]
+          }
+
+          function replaceRules(path, regex, coreRules) {
+              var fs = require('fs')
+              var currentContent = fs.readFileSync(path, 'utf8')
+
+              var newContent = currentContent.replace(regex, '$1' + coreRules + '$2')
+
+              if (currentContent != newContent) {
+                fs.writeFileSync(path, newContent);
+                console.log('PHP Coding Standards Fixer rules have changed.')
+
+                return true
+              } else {
+                console.log('PHP Coding Standards Fixer rules have not changed.')
+
+                return false
+              }
+          }
+
+          function replaceFile(path, newContent) {
+              var fs = require('fs')
+              var currentContent = fs.readFileSync(path, 'utf8')
+
+              if (currentContent != newContent) {
+                fs.writeFileSync(path, newContent);
+                console.log(path + ' has changed.')
+
+                return true
+              } else {
+                console.log(path + ' has not changed.')
+
+                return false
+              }
+          }
+
+          // Align PHP Coding Standards Fixer configuration with the TYPO3 Core
+          console.log('Align PHP Coding Standards Fixer configuration with the TYPO3 Core.')
+          const coreCsFixerConfig = await getCoreFileContent('Build/php-cs-fixer.php')
+          const coreCsFixerRules = getRules(coreCsFixerConfig, /setRules\(\[[\n\r]([\s\S]+) {4}\]\)[\n\r]/g)
+          const phpCsFixer = replaceRules('src/CsFixerConfig.php', /([\s\S]+\$typo3Rules = \[[\n\r])[^\]][^;]*( {4}\];[\s\S]+)/g, coreCsFixerRules)
+
+          core.setOutput('php-cs-fixer', phpCsFixer)
+
+          // Align editorconfig with the TYPO3 Core
+          const coreEditorconfig = await getCoreFileContent('.editorconfig')
+          const editorconfig = replaceFile('.editorconfig', coreEditorconfig)
+
+          core.setOutput('editorconfig', editorconfig)
+
+    - name: Commit changes
+      run: |
+        echo "php-cs-fixer: ${{ steps.align-rules.outputs.php-cs-fixer }}"
+        echo "editorconfig: ${{ steps.align-rules.outputs.editorconfig }}"
+
+        if [ "${{ steps.align-rules.outputs.php-cs-fixer }}" == "true" ] ||
+           [ "${{ steps.align-rules.outputs.editorconfig }}" == "true" ]; then
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git branch task/core-update
+          git switch task/core-update
+          git commit -a -m "[TASK] Align rules with TYPO3 Core"
+          git push -f origin task/core-update
+        fi
+
+    - name: Create pull request
+      id: create-pr
+      uses: actions/github-script@v2
+      with:
+        github-token: ${{secrets.GITHUB_TOKEN}}
+        script: |
+          async function pullRequestExists() {
+            const response = await github.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: "task/core-update"
+            });
+
+            //console.log(response)
+
+            if (response.status != 200) {
+              throw new Error('Download faild.')
+            }
+
+            var pullRequest = 0
+
+            if (response.data.length > 0) {
+              pullRequest = response.data[0].number
+              console.log('Open Pull Request found.')
+            }
+
+            return pullRequest
+          }
+
+          async function createPullRequest() {
+            const response = await github.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: "[TASK] Align rules with TYPO3 Core",
+              head: "task/core-update",
+              base: context.payload.repository.default_branch,
+              body: `Test body.`
+            });
+
+            //console.log(response)
+            console.log('Pull Request created.')
+
+            return response
+          }
+
+          if (!${{ steps.align-rules.outputs.php-cs-fixer }} && !${{ steps.align-rules.outputs.editorconfig }}) {
+            console.log('No changes found.')
+            return 0
+          }
+
+          // Lookup existing PR
+          var pullRequest = await pullRequestExists()
+
+          if (pullRequest == 0) {
+            const response = await createPullRequest()
+            pullRequest = response.data.number
+          }
+
+          return pullRequest
+
+#    - name: Request reviewers
+#      uses: actions/github-script@v2
+#      with:
+#        github-token: ${{secrets.PRAPPROVAL_SECRET}}
+#        script: |
+#          github.pulls.requestReviewers({
+#              owner: context.repo.owner,
+#              repo: context.repo.repo,
+#              pull_number: ${{ steps.create-pr.outputs.result }},
+#              team_reviewers: ['virtual-environments-akvelon']
+#          })
