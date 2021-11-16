@@ -56,6 +56,7 @@ EOF;
         'lowercase_cast' => true,
         'method_argument_space' => ['on_multiline' => 'ensure_fully_multiline'],
         'modernize_types_casting' => true,
+        'my_new_rule' => true,
         'native_function_casing' => true,
         'new_with_braces' => true,
         'no_alias_functions' => true,
@@ -91,6 +92,7 @@ EOF;
         'single_trait_insert_per_statement' => true,
         'trailing_comma_in_multiline' => ['elements' => ['arrays']],
         'whitespace_after_comma_in_array' => true,
+       'x_rule' => false,
     ];
 
     public function __construct(string $name = 'TYPO3')
