@@ -1,0 +1,134 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: 'Prerelease'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  COMPOSER_FLAGS: --ansi --no-interaction --no-progress
+  COMPOSER_INSTALL_FLAGS: --prefer-dist
+
+jobs:
+  create_release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          coverage: none
+          extensions: intl, zip
+          ini-values: memory_limit=-1
+          php-version: latest
+          tools: composer
+
+      - name: Composer Cache Vars
+        id: composer-cache-vars
+        run: |
+          echo "::set-output name=dir::$(composer config cache-files-dir)"
+          echo "::set-output name=timestamp::$(date +"%s")"
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.composer-cache-vars.outputs.dir }}
+          key: ${{ runner.os }}-composer-2-latest-${{ steps.composer-cache-vars.outputs.timestamp }}
+          restore-keys: |
+            ${{ runner.os }}-composer-2-latest-
+            ${{ runner.os }}-composer-2-
+            ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install ${{ env.COMPOSER_INSTALL_FLAGS }} ${{ env.COMPOSER_FLAGS }}
+
+      - name: Create release draft
+        id: version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: release-drafter/release-drafter@v5
+        with:
+          prerelease: ${{ inputs.prerelease }}
+          commitish: ${{ github.ref }}
+          disable-autolabeler: true
+
+      - name: Print calculated version
+        env:
+          VERSION_OUTPUTS: ${{ toJSON(steps.version.outputs) }}
+        run: |
+          echo "$VERSION_OUTPUTS"
+
+      - name: Modify changelog
+        uses: actions/github-script@v6
+        env:
+          VERSION_OUTPUTS: ${{ toJSON(steps.version.outputs) }}
+          REPOSITORY: ${{ toJSON(github.event.repository) }}
+        with:
+          script: |
+            const { VERSION_OUTPUTS, REPOSITORY } = process.env
+            const version = Object.create(VERSION_OUTPUTS)
+
+            const tagName = version.tag_name
+            const body = String(version.body).replaceAll('# ', '## ')
+            const repository = REPOSITORY.full_name
+
+            const today = new Date()
+            const date = String(today.getFullYear()).concat('-', String(today.getMonth() + 1).padStart(2, '0'), '-', String(today.getDate()).padStart(2, '0'));
+            const title = `## [${tagName}](https://github.com/${repository}/releases/tag/${tagName}) - ${date}`
+
+            const changelogPath = 'CHANGELOG.md'
+            const fs = require('fs')
+            const changelog = fs.readFileSync(changelogPath, 'utf8')
+            const marker = '(start of releases)'
+            const newChangelog = changelog.replace(marker, marker.concat('\n\n', title, '\n\n', body, '\n'))
+            fs.writeFileSync(changelogPath, newChangelog)
+
+      - name: Add release commit
+        run: |
+          composer set-version ${{ steps.version.outputs.tag_name }}
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .
+          git commit -m "[RELEASE] ${{ steps.version.outputs.name }}"
+          git push
+
+      - name: Create release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: release-drafter/release-drafter@v5
+        with:
+          publish: true
+          prerelease: ${{ inputs.prerelease }}
+          commitish: ${{ github.ref }}
+          disable-autolabeler: true
+
+      - name: Calculate next version
+        id: next
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: release-drafter/release-drafter@v5
+        with:
+          config-name: release-drafter-dev.yml
+          commitish: ${{ github.ref }}
+          disable-autolabeler: true
+
+      - name: Print calculated version
+        env:
+          VERSION_OUTPUTS: ${{ toJSON(steps.next.outputs) }}
+        run: |
+          echo "$VERSION_OUTPUTS"
+
+      - name: Add version commit
+        run: |
+          composer set-version ${{ steps.next.outputs.tag_name }}
+          git add .
+          git commit -m "[TASK] Set TYPO3 Coding Standards version to ${{ steps.next.outputs.tag_name }}"
+          git push
