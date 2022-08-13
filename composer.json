@@ -38,7 +38,6 @@
 	"require-dev": {
 		"composer/package-versions-deprecated": "^1.11.99.4",
 		"ergebnis/composer-normalize": "*",
-		"gilbertsoft/composer-scripts": "dev-feature/composer-scripts",
 		"keradus/cli-executor": "^1.5",
 		"maglnet/composer-require-checker": "*",
 		"nikic/php-parser": "^4.13.1",
@@ -59,7 +58,6 @@
 	},
 	"autoload-dev": {
 		"psr-4": {
-			"TYPO3\\CodingStandards\\Build\\": "build",
 			"TYPO3\\CodingStandards\\Tests\\": "tests"
 		}
 	},
@@ -119,9 +117,6 @@
 			"@composer require --dev rector/rector",
 			"@php rector process",
 			"@composer remove --dev rector/rector"
-		],
-		"set-version": [
-			"TYPO3\\CodingStandards\\Build\\ReleaseScripts::setVersion"
 		]
 	}
 }
