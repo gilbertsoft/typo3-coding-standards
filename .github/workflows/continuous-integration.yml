@@ -25,6 +25,7 @@ env:
   COMPOSER_FLAGS: --ansi --no-interaction --no-progress
   COMPOSER_INSTALL_FLAGS: --prefer-dist
   COMPOSER_UPDATE_FLAGS: ''
+  COMPOSER_ROOT_VERSION: 0.6.0
 
 jobs:
   validation:
